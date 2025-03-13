@@ -36,11 +36,19 @@ def fetch_advanced_metrics():
     try:
         response = requests.get(url)
         response.raise_for_status()  # Raise an error for bad status codes
-        # Decode the response content and load it into a DataFrame
+        
+        # Debug: Print the first 500 characters of the response
+        st.write("Raw CSV Data (First 500 characters):")
+        st.code(response.text[:500])
+        
+        # Load the CSV data into a DataFrame
         elo_data = pd.read_csv(StringIO(response.text))
         return elo_data
     except requests.exceptions.RequestException as e:
         st.error(f"Failed to fetch advanced metrics: {e}")
+        return pd.DataFrame()  # Return an empty DataFrame on error
+    except pd.errors.ParserError as e:
+        st.error(f"Failed to parse CSV data: {e}")
         return pd.DataFrame()  # Return an empty DataFrame on error
 
 # Function to fetch today's games
