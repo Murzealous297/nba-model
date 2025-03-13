@@ -42,7 +42,7 @@ def fetch_advanced_metrics():
         st.code(response.text[:500])
         
         # Load the CSV data into a DataFrame
-        elo_data = pd.read_csv(StringIO(response.text))
+        elo_data = pd.read_csv(StringIO(response.text), on_bad_lines='skip')  # Skip malformed rows
         return elo_data
     except requests.exceptions.RequestException as e:
         st.error(f"Failed to fetch advanced metrics: {e}")
