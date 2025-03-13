@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from io import StringIO
 
 # Function to fetch team stats
 def fetch_team_stats(year):
@@ -34,9 +34,7 @@ def fetch_player_stats(year):
 def fetch_advanced_metrics():
     url = "https://projects.fivethirtyeight.com/nba-model/nba_elo.csv"
     response = requests.get(url)
-    with open('nba_elo.csv', 'wb') as f:
-        f.write(response.content)
-    elo_data = pd.read_csv('nba_elo.csv')
+    elo_data = pd.read_csv(StringIO(response.text))
     return elo_data
 
 # Function to fetch today's games
