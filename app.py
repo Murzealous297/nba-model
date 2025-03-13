@@ -53,8 +53,53 @@ def fetch_all_data():
     todays_games = fetch_todays_games()
     return team_stats, player_stats, todays_games
 
+# Function to recommend player points over/under bets
+def recommend_player_bets(player_stats):
+    # Clean and preprocess player stats
+    player_stats['PTS'] = pd.to_numeric(player_stats['PTS'], errors='coerce')
+    player_stats = player_stats.dropna(subset=['PTS'])
+    
+    # Sort players by points per game (descending)
+    top_players = player_stats.sort_values(by='PTS', ascending=False).head(10)
+    
+    # Recommend top 3 players for over/under bets
+    recommendations = []
+    for _, row in top_players.iterrows():
+        player_name = row['Player']
+        pts = row['PTS']
+        recommendations.append(f"{player_name} (Avg PTS: {pts:.1f}) - Over/Under: {pts + 2:.1f}")
+    
+    return recommendations[:3]  # Return top 3 recommendations
+
+# Function to predict win/loss for today's games
+def predict_win_loss(todays_games, team_stats):
+    # Clean and preprocess team stats
+    team_stats['PTS'] = pd.to_numeric(team_stats['PTS'], errors='coerce')
+    team_stats = team_stats.dropna(subset=['PTS'])
+    
+    # Create a dictionary of team points
+    team_points = dict(zip(team_stats['Team'], team_stats['PTS']))
+    
+    # Predict win/loss for each game
+    predictions = []
+    for _, game in todays_games.iterrows():
+        away_team = game['Away Team']
+        home_team = game['Home Team']
+        
+        # Get team points (default to 0 if team not found)
+        away_pts = team_points.get(away_team, 0)
+        home_pts = team_points.get(home_team, 0)
+        
+        # Predict winner
+        if away_pts > home_pts:
+            predictions.append(f"{away_team} (Away) vs {home_team} (Home) - Predicted Winner: {away_team}")
+        else:
+            predictions.append(f"{away_team} (Away) vs {home_team} (Home) - Predicted Winner: {home_team}")
+    
+    return predictions
+
 # Streamlit App
-st.title("NBA Betting Data Automation")
+st.title("JT NBA Betting Model")
 
 # Run button
 if st.button("Run"):
@@ -91,3 +136,19 @@ if st.button("Run"):
     
     st.write("Today's Games:")
     st.write(todays_games)
+    
+    # Summary Section
+    st.write("---")
+    st.header("Bet Recommendations")
+    
+    # Bet 1: Player Points Over/Under Bets
+    st.subheader("Bet 1: Top 3 Player Points Over/Under Bets")
+    player_bets = recommend_player_bets(player_stats)
+    for bet in player_bets:
+        st.write(f"- {bet}")
+    
+    # Bet 2: Win/Loss Predictions
+    st.subheader("Bet 2: Win/Loss Predictions for Today's Games")
+    win_loss_predictions = predict_win_loss(todays_games, team_stats)
+    for prediction in win_loss_predictions:
+        st.write(f"- {prediction}")
