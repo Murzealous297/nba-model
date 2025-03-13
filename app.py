@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # Function to fetch team stats
-def fetch_team_stats(year, progress_callback=None):
+def fetch_team_stats(year):
     url = f"https://www.basketball-reference.com/leagues/NBA_{year}.html"
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -14,14 +14,10 @@ def fetch_team_stats(year, progress_callback=None):
     headers = [th.text for th in table.find('thead').find_all('th')]
     data = [[td.text for td in row.find_all('td')] for row in table.find('tbody').find_all('tr')]
     team_stats = pd.DataFrame(data, columns=headers[1:])
-    
-    # Update progress
-    if progress_callback:
-        progress_callback(33)  # 33% complete after fetching team stats
     return team_stats
 
 # Function to fetch player stats
-def fetch_player_stats(year, progress_callback=None):
+def fetch_player_stats(year):
     url = f"https://www.basketball-reference.com/leagues/NBA_{year}_per_game.html"
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -31,14 +27,10 @@ def fetch_player_stats(year, progress_callback=None):
     headers = [th.text for th in table.find('thead').find_all('th')]
     data = [[td.text for td in row.find_all('td')] for row in table.find('tbody').find_all('tr')]
     player_stats = pd.DataFrame(data, columns=headers[1:])
-    
-    # Update progress
-    if progress_callback:
-        progress_callback(66)  # 66% complete after fetching player stats
     return player_stats
 
 # Function to fetch today's games
-def fetch_todays_games(progress_callback=None):
+def fetch_todays_games():
     url = "https://www.basketball-reference.com/boxscores/"
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -50,19 +42,15 @@ def fetch_todays_games(progress_callback=None):
             away_team = teams[0].text
             home_team = teams[1].text
             games.append({'Away Team': away_team, 'Home Team': home_team})
-    
-    # Update progress
-    if progress_callback:
-        progress_callback(100)  # 100% complete after fetching today's games
     return pd.DataFrame(games)
 
 # Cache data to avoid re-fetching
 @st.cache_data
-def fetch_all_data(progress_callback=None):
+def fetch_all_data():
     st.write("Fetching all data...")
-    team_stats = fetch_team_stats(2023, progress_callback)  # Replace with current year
-    player_stats = fetch_player_stats(2023, progress_callback)
-    todays_games = fetch_todays_games(progress_callback)
+    team_stats = fetch_team_stats(2023)  # Replace with current year
+    player_stats = fetch_player_stats(2023)
+    todays_games = fetch_todays_games()
     return team_stats, player_stats, todays_games
 
 # Streamlit App
@@ -74,13 +62,25 @@ if st.button("Run"):
     progress_bar = st.progress(0)
     progress_text = st.empty()
 
-    # Define progress callback
+    # Update progress
     def update_progress(percentage):
         progress_bar.progress(percentage)
         progress_text.text(f"Progress: {percentage}%")
 
     # Fetch all data with progress updates
-    team_stats, player_stats, todays_games = fetch_all_data(update_progress)
+    update_progress(0)  # Start at 0%
+    
+    # Fetch team stats
+    team_stats = fetch_team_stats(2023)
+    update_progress(33)  # 33% complete after fetching team stats
+    
+    # Fetch player stats
+    player_stats = fetch_player_stats(2023)
+    update_progress(66)  # 66% complete after fetching player stats
+    
+    # Fetch today's games
+    todays_games = fetch_todays_games()
+    update_progress(100)  # 100% complete after fetching today's games
     
     # Display fetched data
     st.write("Team Stats:")
