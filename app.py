@@ -33,9 +33,15 @@ def fetch_player_stats(year):
 # Function to fetch advanced metrics from FiveThirtyEight
 def fetch_advanced_metrics():
     url = "https://projects.fivethirtyeight.com/nba-model/nba_elo.csv"
-    response = requests.get(url)
-    elo_data = pd.read_csv(StringIO(response.text))
-    return elo_data
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad status codes
+        # Decode the response content and load it into a DataFrame
+        elo_data = pd.read_csv(StringIO(response.text))
+        return elo_data
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch advanced metrics: {e}")
+        return pd.DataFrame()  # Return an empty DataFrame on error
 
 # Function to fetch today's games
 def fetch_todays_games():
