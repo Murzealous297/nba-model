@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from io import StringIO
 
 # Function to fetch team stats
 def fetch_team_stats(year):
@@ -30,27 +29,6 @@ def fetch_player_stats(year):
     player_stats = pd.DataFrame(data, columns=headers[1:])
     return player_stats
 
-# Function to fetch advanced metrics from FiveThirtyEight
-def fetch_advanced_metrics():
-    url = "https://projects.fivethirtyeight.com/nba-model/nba_elo.csv"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Raise an error for bad status codes
-        
-        # Debug: Print the first 500 characters of the response
-        st.write("Raw CSV Data (First 500 characters):")
-        st.code(response.text[:500])
-        
-        # Load the CSV data into a DataFrame
-        elo_data = pd.read_csv(StringIO(response.text), on_bad_lines='skip')  # Skip malformed rows
-        return elo_data
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to fetch advanced metrics: {e}")
-        return pd.DataFrame()  # Return an empty DataFrame on error
-    except pd.errors.ParserError as e:
-        st.error(f"Failed to parse CSV data: {e}")
-        return pd.DataFrame()  # Return an empty DataFrame on error
-
 # Function to fetch today's games
 def fetch_todays_games():
     url = "https://www.basketball-reference.com/boxscores/"
@@ -72,16 +50,15 @@ def fetch_all_data():
     st.write("Fetching all data...")
     team_stats = fetch_team_stats(2023)  # Replace with current year
     player_stats = fetch_player_stats(2023)
-    elo_data = fetch_advanced_metrics()
     todays_games = fetch_todays_games()
-    return team_stats, player_stats, elo_data, todays_games
+    return team_stats, player_stats, todays_games
 
 # Streamlit App
 st.title("NBA Betting Data Automation")
 
 # Run button
 if st.button("Run"):
-    team_stats, player_stats, elo_data, todays_games = fetch_all_data()
+    team_stats, player_stats, todays_games = fetch_all_data()
     
     # Display fetched data
     st.write("Team Stats:")
@@ -89,9 +66,6 @@ if st.button("Run"):
     
     st.write("Player Stats:")
     st.write(player_stats.head())
-    
-    st.write("Advanced Metrics (ELO):")
-    st.write(elo_data.head())
     
     st.write("Today's Games:")
     st.write(todays_games)
