@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import logging
+import os
 from nba_api.stats.endpoints import leaguegamefinder, playergamelog
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
@@ -47,7 +48,7 @@ def fetch_data():
         if all_player_stats:
             player_stats = pd.concat(all_player_stats)
             player_stats.to_csv('nba_player_stats.csv', index=False)
-            logging.info(f"Player stats saved to nba_player_stats.csv.")
+            logging.info("Player stats saved to nba_player_stats.csv.")
             logging.info(f"player_stats sample:\n{player_stats.head()}")
             st.success("Data fetch completed successfully.")
         else:
@@ -58,9 +59,15 @@ def fetch_data():
         logging.error(f"Data fetching failed: {e}")
         st.error("Data fetching failed. Check logs.")
 
-# Preprocess data
+# Preprocess data with file existence check
 def preprocess_data():
     logging.info("Starting preprocessing...")
+
+    # Check if data files exist
+    if not os.path.exists('nba_games.csv') or not os.path.exists('nba_player_stats.csv'):
+        logging.error("Data files missing. Cannot preprocess.")
+        st.error("Data files missing. Please fetch data first.")
+        return None, None
 
     try:
         games_data = pd.read_csv('nba_games.csv')
@@ -68,6 +75,11 @@ def preprocess_data():
         
         logging.info(f"Games data shape: {games_data.shape}")
         logging.info(f"Player stats shape: {player_stats.shape}")
+
+        if games_data.empty or player_stats.empty:
+            logging.error("Loaded CSV files are empty.")
+            st.error("Data files are empty. Please fetch data again.")
+            return None, None
 
         st.write("### Games Data Columns:")
         st.write(games_data.columns)
@@ -93,7 +105,7 @@ def preprocess_data():
 
     except Exception as e:
         logging.error(f"Preprocessing failed: {e}")
-        st.error(f"Preprocessing failed: {e}")
+        st.error(f"Preprocessing failed. Check logs.")
         return None, None
 
 # Train models
@@ -139,7 +151,7 @@ def train_models():
 
     except Exception as e:
         logging.error(f"Training failed: {e}")
-        st.error(f"Training failed. Check logs.")
+        st.error("Training failed. Check logs.")
 
 # Prediction function
 def predict_outcomes():
