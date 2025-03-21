@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import joblib
 import logging
-from nba_api.stats.endpoints import leaguegamefinder, playergamelog
+from basketball_reference_scraper.games import get_schedule, get_box_scores
+from basketball_reference_scraper.players import get_stats
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
@@ -10,73 +11,86 @@ from sklearn.metrics import mean_squared_error
 # Logging setup
 logging.basicConfig(filename='nba_model.log', level=logging.INFO)
 
-st.title("NBA Betting Prediction App")
-st.write("Predict game outcomes and player stats (points, assists, rebounds) for starting players.")
+st.title("NBA Betting Prediction App (Basketball Reference)")
+st.write("Predict NBA game outcomes and player stats (points, assists, rebounds).")
 
-# Function to fetch NBA data
+# Function to fetch NBA data from Basketball Reference
 def fetch_data():
-    logging.info("Fetching NBA data...")
-
-    # Fetch recent games
-    try:
-        gamefinder = leaguegamefinder.LeagueGameFinder(season_nullable='2024-25')
-        games = gamefinder.get_data_frames()[0]
-        games.to_csv('nba_games.csv', index=False)
-        logging.info("Game data fetched and saved.")
-    except Exception as e:
-        logging.error(f"Error fetching game data: {e}")
-        st.error("Error fetching game data. Check logs.")
-
-    # Example player IDs; update as needed or fetch dynamically
-    player_ids = ['2544', '201939']  # Example player IDs
-    all_stats = []
+    logging.info("Fetching NBA data from Basketball Reference...")
 
     try:
-        for pid in player_ids:
-            gamelog = playergamelog.PlayerGameLog(player_id=pid, season='2024-25')
-            all_stats.append(gamelog.get_data_frames()[0])
+        # Fetch schedule for the 2024-25 season
+        schedule = get_schedule('2025')
+        schedule.to_csv('nba_schedule.csv', index=False)
+        logging.info("Schedule data fetched and saved.")
 
-        player_data = pd.concat(all_stats)
-        player_data.to_csv('nba_player_stats.csv', index=False)
+        # Fetch box scores for recent games
+        dates = schedule['DATE'].unique()[-5:]  # Last 5 unique game dates for simplicity
+        box_scores = []
+
+        for date in dates:
+            box = get_box_scores(date)
+            box_scores.append(box)
+
+        box_data = pd.concat(box_scores)
+        box_data.to_csv('nba_box_scores.csv', index=False)
+        logging.info("Box score data fetched and saved.")
+
+        # Example player stats fetching (modify player names dynamically if needed)
+        players = ['LeBron James', 'Stephen Curry']
+        all_stats = []
+
+        for player in players:
+            stats = get_stats(player, stat_type='PER_GAME')
+            all_stats.append(stats)
+
+        player_stats = pd.concat(all_stats)
+        player_stats.to_csv('nba_player_stats.csv', index=False)
         logging.info("Player stats fetched and saved.")
-    except Exception as e:
-        logging.error(f"Error fetching player stats: {e}")
-        st.error("Error fetching player stats. Check logs.")
+        
+        st.success("Data fetched successfully!")
 
-# Preprocess data with dynamic column checks
+    except Exception as e:
+        logging.error(f"Data fetch error: {e}")
+        st.error("Error fetching data. Check logs.")
+
+# Preprocess data with dynamic column detection
 def preprocess_data():
     try:
-        games = pd.read_csv('nba_games.csv')
+        games = pd.read_csv('nba_schedule.csv')
         players = pd.read_csv('nba_player_stats.csv')
 
-        # Dynamic check for home team column
-        home_team_col = next((col for col in games.columns if 'HOME' in col and 'TEAM' in col), None)
-        if not home_team_col:
-            st.error("Home team column not found in game data.")
-            logging.error("Home team column missing in games data.")
-            return None, None
-        games[home_team_col] = games[home_team_col].astype('category').cat.codes
+        st.write("### Game Data Columns")
+        st.write(games.columns)  # Debug: Display columns
 
+        home_team_col = next((col for col in games.columns if 'home' in col.lower()), None)
+        visitor_team_col = next((col for col in games.columns if 'visitor' in col.lower()), None)
+
+        if not home_team_col or not visitor_team_col:
+            st.error("Required columns not found in game data.")
+            logging.error(f"Missing columns. Available columns: {games.columns}")
+            return None, None
+
+        games[home_team_col] = games[home_team_col].astype('category').cat.codes
         players.fillna(players.mean(), inplace=True)
-        logging.info("Data preprocessing completed.")
+        
+        logging.info(f"Preprocessing complete with columns: {home_team_col}, {visitor_team_col}.")
         return games, players
 
     except Exception as e:
         logging.error(f"Preprocessing error: {e}")
-        st.error("Error preprocessing data. Check logs.")
+        st.error("Error during data preprocessing. Check logs.")
         return None, None
 
-# Train models for spread and player metrics
+# Train models
 def train_models():
     games, players = preprocess_data()
     if games is None or players is None:
-        st.error("Data preprocessing failed. Training aborted.")
+        st.error("Preprocessing failed. Model training aborted.")
         return
 
-    logging.info("Starting model training...")
-
     try:
-        # Train Spread Model
+        # Spread Model
         X_games = games.drop(columns=['SPREAD'], errors='ignore')
         y_games = games['SPREAD']
         Xg_train, Xg_test, yg_train, yg_test = train_test_split(X_games, y_games, test_size=0.2, random_state=42)
@@ -87,7 +101,7 @@ def train_models():
         spread_rmse = mean_squared_error(yg_test, spread_model.predict(Xg_test), squared=False)
         logging.info(f"Spread Model RMSE: {spread_rmse:.2f}")
 
-        # Train Player Stats Model
+        # Player Metrics Model
         X_players = players.drop(columns=['PLAYER_METRIC'], errors='ignore')
         y_players = players['PLAYER_METRIC']
         Xp_train, Xp_test, yp_train, yp_test = train_test_split(X_players, y_players, test_size=0.2, random_state=42)
@@ -101,17 +115,18 @@ def train_models():
         # Save models
         joblib.dump(spread_model, 'spread_model.pkl')
         joblib.dump(player_model, 'player_model.pkl')
-        st.success("Models trained and saved successfully!")
-        logging.info("Models saved.")
-    
+        
+        st.success("Models trained and saved!")
+        logging.info("Models saved successfully.")
+
     except Exception as e:
         logging.error(f"Model training error: {e}")
         st.error("Error during model training. Check logs.")
 
-# Predict game outcomes and player stats
+# Predict outcomes
 def predict_outcomes():
     try:
-        games = pd.read_csv('nba_games.csv')
+        games = pd.read_csv('nba_schedule.csv')
         spread_model = joblib.load('spread_model.pkl')
         player_model = joblib.load('player_model.pkl')
         predictions = []
@@ -120,24 +135,23 @@ def predict_outcomes():
             game_features = game.drop(labels=['SPREAD'], errors='ignore').values.reshape(1, -1)
             spread_pred = spread_model.predict(game_features)[0]
             
-            winner = game['HOME_TEAM_NAME'] if spread_pred > 0 else game['VISITOR_TEAM_NAME']
+            winner = game['HOME_TEAM'] if spread_pred > 0 else game['VISITOR_TEAM']
             
             player_stats = []
-            starting_players = ['2544', '201939']  # Example player IDs
-            for pid in starting_players:
-                # Example feature vector; customize as necessary
-                player_features = [0.5, 25, 5]  # Example: [usage%, points, assists]
-                stats_pred = player_model.predict([player_features])[0]
-                
+            players = ['LeBron James', 'Stephen Curry']  # Example players
+            for player in players:
+                features = [0.5, 25, 5]  # Example features: usage%, points, assists
+                stats_pred = player_model.predict([features])[0]
+
                 player_stats.append({
-                    'Player ID': pid,
+                    'Player': player,
                     'Predicted Points': round(stats_pred, 1),
                     'Predicted Assists': round(stats_pred * 0.5, 1),
                     'Predicted Rebounds': round(stats_pred * 0.7, 1)
                 })
-
+            
             predictions.append({
-                'Game': f"{game['HOME_TEAM_NAME']} vs {game['VISITOR_TEAM_NAME']}",
+                'Game': f"{game['HOME_TEAM']} vs {game['VISITOR_TEAM']}",
                 'Predicted Winner': winner,
                 'Player Stats': player_stats
             })
@@ -149,20 +163,18 @@ def predict_outcomes():
         st.error("Prediction error. Check logs.")
         return []
 
-# UI Buttons and Functionality
-if st.button("Run Data Fetch & Model Training"):
+# UI Controls
+if st.button("Fetch Data & Train Models"):
     with st.spinner("Fetching data and training models..."):
         fetch_data()
         train_models()
 
-if st.button("Predict Game Outcomes & Player Stats"):
-    with st.spinner("Making predictions..."):
+if st.button("Predict Outcomes"):
+    with st.spinner("Predicting game outcomes..."):
         results = predict_outcomes()
         for result in results:
             st.subheader(f"Game: {result['Game']}")
             st.write(f"**Predicted Winner:** {result['Predicted Winner']}")
-            
-            stats_df = pd.DataFrame(result['Player Stats'])
-            st.table(stats_df)
+            st.table(pd.DataFrame(result['Player Stats']))
 
-st.write("Models are updated manually. Predictions use the latest trained models.")
+st.write("Models are manually updated. Predictions use the latest models.")
