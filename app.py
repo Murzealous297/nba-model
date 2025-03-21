@@ -58,31 +58,41 @@ def fetch_data():
 
 # Preprocess data
 def preprocess_data():
-    logging.info("Preprocessing data...")
+    logging.info("Starting data preprocessing...")
 
     try:
+        # Load game and player stats
         games_data = pd.read_csv('nba_games.csv')
         player_stats = pd.read_csv('nba_player_stats.csv')
-        logging.info(f"Games shape: {games_data.shape}, Player stats shape: {player_stats.shape}")
+        
+        logging.info(f"Games data shape: {games_data.shape}")
+        logging.info(f"Player stats shape: {player_stats.shape}")
 
-        required_columns = ['GAME_ID', 'MATCHUP', 'WL', 'PTS', 'AST', 'REB']
-        missing_columns = [col for col in required_columns if col not in games_data.columns]
+        # Debugging: Display columns in Streamlit
+        st.write("### Games Data Columns:")
+        st.write(games_data.columns)
+        st.write("### Player Stats Columns:")
+        st.write(player_stats.columns)
+
+        # Required columns
+        required_game_columns = ['GAME_ID', 'MATCHUP', 'WL', 'PTS', 'AST', 'REB']
+        missing_columns = [col for col in required_game_columns if col not in games_data.columns]
 
         if missing_columns:
-            logging.error(f"Missing game columns: {missing_columns}")
+            logging.error(f"Missing columns in game data: {missing_columns}")
             st.error(f"Missing columns in game data: {missing_columns}")
             return None, None
 
         # Fill missing values
         games_data.fillna(0, inplace=True)
         player_stats.fillna(player_stats.mean(), inplace=True)
-
-        logging.info("Preprocessing completed successfully.")
+        
+        logging.info("Preprocessing successful.")
         return games_data, player_stats
 
     except Exception as e:
-        logging.error(f"Preprocessing error: {e}")
-        st.error("Preprocessing failed. Check logs.")
+        logging.error(f"Preprocessing failed: {e}")
+        st.error(f"Preprocessing failed: {e}")
         return None, None
 
 # Train models
@@ -90,12 +100,13 @@ def train_models():
     games_data, player_stats = preprocess_data()
     if games_data is None or player_stats is None:
         st.error("Preprocessing failed. Training aborted.")
+        logging.error("Preprocessing failed. Training aborted.")
         return
 
     logging.info("Starting model training...")
 
     try:
-        # Spread model
+        # Spread model (Game outcome)
         X_games = games_data[['PTS', 'AST', 'REB']].values
         y_games = (games_data['WL'] == 'W').astype(int)  # Win = 1, Loss = 0
 
@@ -108,9 +119,9 @@ def train_models():
         spread_rmse = mean_squared_error(y_test, spread_model.predict(X_test), squared=False)
         logging.info(f"Spread model RMSE: {spread_rmse:.2f}")
 
-        # Player performance model
+        # Player performance model (Points prediction)
         X_players = player_stats[['PTS', 'AST', 'REB']].values
-        y_players = player_stats['PTS']  # Predict points
+        y_players = player_stats['PTS']
 
         Xp_train, Xp_test, yp_train, yp_test = train_test_split(
             X_players, y_players, test_size=0.2, random_state=42
@@ -129,11 +140,11 @@ def train_models():
 
     except Exception as e:
         logging.error(f"Model training failed: {e}")
-        st.error("Model training failed. Check logs.")
+        st.error(f"Model training failed. Check logs.")
 
 # Predict outcomes
 def predict_outcomes():
-    logging.info("Predicting game outcomes...")
+    logging.info("Starting prediction...")
 
     try:
         games_data = pd.read_csv('nba_games.csv')
@@ -146,33 +157,34 @@ def predict_outcomes():
             win_prob = spread_model.predict(features)[0]
             winner = "Home Team" if win_prob > 0.5 else "Visitor"
 
-            player_stats = []
             player_stats_data = pd.read_csv('nba_player_stats.csv')
+            player_stats = []
+
             for _, player in player_stats_data.iterrows():
                 player_features = [[player['PTS'], player['AST'], player['REB']]]
                 pred_pts = player_model.predict(player_features)[0]
                 
                 player_stats.append({
                     'Player': player['PLAYER_NAME'],
-                    'Points': round(pred_pts, 1),
-                    'Assists': round(pred_pts * 0.5, 1),
-                    'Rebounds': round(pred_pts * 0.7, 1)
+                    'Pred Points': round(pred_pts, 1),
+                    'Pred Assists': round(pred_pts * 0.5, 1),
+                    'Pred Rebounds': round(pred_pts * 0.7, 1)
                 })
 
             predictions.append({
                 'Game': game['MATCHUP'],
-                'Predicted Winner': winner,
+                'Pred Winner': winner,
                 'Player Stats': player_stats
             })
 
         return predictions
 
     except Exception as e:
-        logging.error(f"Prediction error: {e}")
+        logging.error(f"Prediction failed: {e}")
         st.error("Prediction failed. Check logs.")
         return []
 
-# UI controls
+# UI Controls
 if st.button("Fetch Data & Train Models"):
     with st.spinner("Fetching data and training models..."):
         fetch_data()
@@ -180,10 +192,10 @@ if st.button("Fetch Data & Train Models"):
 
 if st.button("Predict Game Outcomes"):
     with st.spinner("Predicting outcomes..."):
-        predictions = predict_outcomes()
-        for pred in predictions:
+        preds = predict_outcomes()
+        for pred in preds:
             st.subheader(f"Game: {pred['Game']}")
-            st.write(f"**Predicted Winner:** {pred['Predicted Winner']}")
+            st.write(f"**Predicted Winner:** {pred['Pred Winner']}")
             st.table(pd.DataFrame(pred['Player Stats']))
 
-st.info("Update data and models as needed.")
+st.info("Check logs for detailed errors.")
