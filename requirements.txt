@@ -1,5 +1,5 @@
 streamlit
-basketball-reference-scraper
+nba_api
 scikit-learn
 pandas
 joblib
