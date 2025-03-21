@@ -1,5 +1,5 @@
 streamlit
-basketball-reference-scraper==0.4.0
+basketball-reference-scraper
 scikit-learn
 pandas
 joblib
