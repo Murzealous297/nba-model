@@ -1,5 +1,5 @@
 streamlit
+nba_api
+scikit-learn
 pandas
-numpy
-requests
-beautifulsoup4
+joblib
