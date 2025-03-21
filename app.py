@@ -1,154 +1,115 @@
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
+import joblib
+import logging
+from nba_api.stats.endpoints import leaguegamefinder, playergamelog
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# Function to fetch team stats
-def fetch_team_stats(year):
-    url = f"https://www.basketball-reference.com/leagues/NBA_{year}.html"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Scrape team stats
-    table = soup.find('table', {'id': 'per_game-team'})
-    headers = [th.text for th in table.find('thead').find_all('th')]
-    data = [[td.text for td in row.find_all('td')] for row in table.find('tbody').find_all('tr')]
-    team_stats = pd.DataFrame(data, columns=headers[1:])
-    return team_stats
+# Logging setup
+logging.basicConfig(filename='nba_model.log', level=logging.INFO)
 
-# Function to fetch player stats
-def fetch_player_stats(year):
-    url = f"https://www.basketball-reference.com/leagues/NBA_{year}_per_game.html"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Scrape player stats
-    table = soup.find('table', {'id': 'per_game_stats'})
-    headers = [th.text for th in table.find('thead').find_all('th')]
-    data = [[td.text for td in row.find_all('td')] for row in table.find('tbody').find_all('tr')]
-    player_stats = pd.DataFrame(data, columns=headers[1:])
-    return player_stats
+# Streamlit setup
+st.title("NBA Betting Model")
+st.write("Predict NBA game spreads and player performance.")
 
-# Function to fetch today's games
-def fetch_todays_games():
-    url = "https://www.basketball-reference.com/boxscores/"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    games = []
-    for game in soup.find_all('div', class_='game_summary'):
-        teams = game.find_all('a')
-        if len(teams) >= 2:
-            away_team = teams[0].text
-            home_team = teams[1].text
-            games.append({'Away Team': away_team, 'Home Team': home_team})
-    return pd.DataFrame(games)
+# Background scheduler for automatic data fetching
+scheduler = BackgroundScheduler()
+scheduler.start()
 
-# Cache data to avoid re-fetching
-@st.cache_data
-def fetch_all_data():
-    st.write("Fetching all data...")
-    team_stats = fetch_team_stats(2023)  # Replace with current year
-    player_stats = fetch_player_stats(2023)
-    todays_games = fetch_todays_games()
-    return team_stats, player_stats, todays_games
+def fetch_data():
+    logging.info("Fetching NBA data...")
+    
+    # Fetch game data
+    gamefinder = leaguegamefinder.LeagueGameFinder(season_nullable='2024-25')
+    games = gamefinder.get_data_frames()[0]
+    games.to_csv('nba_games.csv', index=False)
+    
+    # Example player IDs (replace with dynamic fetching if needed)
+    player_ids = ['2544', '201939']
+    all_stats = []
+    for pid in player_ids:
+        gamelog = playergamelog.PlayerGameLog(player_id=pid, season='2024-25')
+        all_stats.append(gamelog.get_data_frames()[0])
+    
+    player_data = pd.concat(all_stats)
+    player_data.to_csv('nba_player_stats.csv', index=False)
+    
+    logging.info("Data fetched and saved.")
 
-# Function to recommend player points over/under bets
-def recommend_player_bets(player_stats):
-    # Clean and preprocess player stats
-    player_stats['PTS'] = pd.to_numeric(player_stats['PTS'], errors='coerce')
-    player_stats = player_stats.dropna(subset=['PTS'])
+def preprocess_data():
+    games = pd.read_csv('nba_games.csv')
+    players = pd.read_csv('nba_player_stats.csv')
     
-    # Sort players by points per game (descending)
-    top_players = player_stats.sort_values(by='PTS', ascending=False).head(10)
+    games['HOME_TEAM'] = games['HOME_TEAM'].astype('category').cat.codes
+    players.fillna(players.mean(), inplace=True)
     
-    # Recommend top 3 players for over/under bets
-    recommendations = []
-    for _, row in top_players.iterrows():
-        player_name = row['Player']
-        pts = row['PTS']
-        recommendations.append(f"{player_name} (Avg PTS: {pts:.1f}) - Over/Under: {pts + 2:.1f}")
-    
-    return recommendations[:3]  # Return top 3 recommendations
+    return games, players
 
-# Function to predict win/loss for today's games
-def predict_win_loss(todays_games, team_stats):
-    # Clean and preprocess team stats
-    team_stats['PTS'] = pd.to_numeric(team_stats['PTS'], errors='coerce')
-    team_stats = team_stats.dropna(subset=['PTS'])
+def train_models():
+    logging.info("Training models...")
     
-    # Create a dictionary of team points
-    team_points = dict(zip(team_stats['Team'], team_stats['PTS']))
+    games, players = preprocess_data()
     
-    # Predict win/loss for each game
-    predictions = []
-    for _, game in todays_games.iterrows():
-        away_team = game['Away Team']
-        home_team = game['Home Team']
-        
-        # Get team points (default to 0 if team not found)
-        away_pts = team_points.get(away_team, 0)
-        home_pts = team_points.get(home_team, 0)
-        
-        # Predict winner
-        if away_pts > home_pts:
-            predictions.append(f"{away_team} (Away) vs {home_team} (Home) - Predicted Winner: {away_team}")
-        else:
-            predictions.append(f"{away_team} (Away) vs {home_team} (Home) - Predicted Winner: {home_team}")
+    # Game Spread Model
+    X_games = games.drop(columns=['SPREAD'])
+    y_games = games['SPREAD']
+    Xg_train, Xg_test, yg_train, yg_test = train_test_split(X_games, y_games, test_size=0.2)
     
-    return predictions
+    spread_model = RandomForestRegressor(n_estimators=150)
+    spread_model.fit(Xg_train, yg_train)
+    
+    spread_rmse = mean_squared_error(yg_test, spread_model.predict(Xg_test), squared=False)
+    logging.info(f"Spread RMSE: {spread_rmse}")
+    
+    # Player Metrics Model
+    X_players = players.drop(columns=['PLAYER_METRIC'])
+    y_players = players['PLAYER_METRIC']
+    Xp_train, Xp_test, yp_train, yp_test = train_test_split(X_players, y_players, test_size=0.2)
+    
+    player_model = GradientBoostingRegressor(n_estimators=150, learning_rate=0.1)
+    player_model.fit(Xp_train, yp_train)
+    
+    player_rmse = mean_squared_error(yp_test, player_model.predict(Xp_test), squared=False)
+    logging.info(f"Player RMSE: {player_rmse}")
+    
+    joblib.dump(spread_model, 'spread_model.pkl')
+    joblib.dump(player_model, 'player_model.pkl')
+    logging.info("Models saved.")
 
-# Streamlit App
-st.title("JT NBA Betting Model")
+@scheduler.scheduled_job('interval', hours=24)
+def scheduled_update():
+    fetch_data()
+    train_models()
 
-# Run button
-if st.button("Run"):
-    # Initialize progress bar
-    progress_bar = st.progress(0)
-    progress_text = st.empty()
+# Schedule data fetch and model training
+if st.button("Update Data & Retrain Models"):
+    scheduled_update()
+    st.success("Data updated and models retrained.")
 
-    # Update progress
-    def update_progress(percentage):
-        progress_bar.progress(percentage)
-        progress_text.text(f"Progress: {percentage}%")
+# Prediction UI
+st.subheader("Predict Game Spread")
+spread_input = st.text_input("Enter features for spread prediction (comma-separated):")
+if st.button("Predict Spread"):
+    try:
+        features = list(map(float, spread_input.split(',')))
+        spread_model = joblib.load("spread_model.pkl")
+        prediction = spread_model.predict([features])[0]
+        st.success(f"Predicted Spread: {prediction:.2f}")
+    except Exception as e:
+        st.error(f"Prediction error: {e}")
 
-    # Fetch all data with progress updates
-    update_progress(0)  # Start at 0%
-    
-    # Fetch team stats
-    team_stats = fetch_team_stats(2023)
-    update_progress(33)  # 33% complete after fetching team stats
-    
-    # Fetch player stats
-    player_stats = fetch_player_stats(2023)
-    update_progress(66)  # 66% complete after fetching player stats
-    
-    # Fetch today's games
-    todays_games = fetch_todays_games()
-    update_progress(100)  # 100% complete after fetching today's games
-    
-    # Display fetched data
-    st.write("Team Stats:")
-    st.write(team_stats.head())
-    
-    st.write("Player Stats:")
-    st.write(player_stats.head())
-    
-    st.write("Today's Games:")
-    st.write(todays_games)
-    
-    # Summary Section
-    st.write("---")
-    st.header("Bet Recommendations")
-    
-    # Bet 1: Player Points Over/Under Bets
-    st.subheader("Bet 1: Top 3 Player Points Over/Under Bets")
-    player_bets = recommend_player_bets(player_stats)
-    for bet in player_bets:
-        st.write(f"- {bet}")
-    
-    # Bet 2: Win/Loss Predictions
-    st.subheader("Bet 2: Win/Loss Predictions for Today's Games")
-    win_loss_predictions = predict_win_loss(todays_games, team_stats)
-    for prediction in win_loss_predictions:
-        st.write(f"- {prediction}")
+st.subheader("Predict Player Performance")
+player_input = st.text_input("Enter features for player prediction (comma-separated):")
+if st.button("Predict Player Metric"):
+    try:
+        features = list(map(float, player_input.split(',')))
+        player_model = joblib.load("player_model.pkl")
+        prediction = player_model.predict([features])[0]
+        st.success(f"Predicted Player Metric: {prediction:.2f}")
+    except Exception as e:
+        st.error(f"Prediction error: {e}")
+
+st.write("App is running. Models are updated every 24 hours.")
