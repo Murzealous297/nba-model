@@ -23,6 +23,7 @@ def fetch_data():
         games_data = gamefinder.get_data_frames()[0]
         games_data.to_csv('nba_games.csv', index=False)
         logging.info(f"Fetched {len(games_data)} games. Saved to nba_games.csv.")
+        logging.info(f"games_data sample:\n{games_data.head()}")
 
         # Fetch player stats
         players = {'LeBron James': '2544', 'Stephen Curry': '201939'}
@@ -38,7 +39,7 @@ def fetch_data():
                 )
                 stats = gamelog.get_data_frames()[0]
                 all_player_stats.append(stats)
-                logging.info(f"Fetched stats for {player_name}.")
+                logging.info(f"Fetched stats for {player_name}, rows: {len(stats)}")
             except Exception as e:
                 logging.error(f"Error fetching stats for {player_name}: {e}")
                 st.error(f"Failed to fetch stats for {player_name}.")
@@ -46,7 +47,8 @@ def fetch_data():
         if all_player_stats:
             player_stats = pd.concat(all_player_stats)
             player_stats.to_csv('nba_player_stats.csv', index=False)
-            logging.info("Player stats saved to nba_player_stats.csv.")
+            logging.info(f"Player stats saved to nba_player_stats.csv.")
+            logging.info(f"player_stats sample:\n{player_stats.head()}")
             st.success("Data fetch completed successfully.")
         else:
             logging.error("No player stats fetched.")
@@ -63,11 +65,15 @@ def preprocess_data():
     try:
         games_data = pd.read_csv('nba_games.csv')
         player_stats = pd.read_csv('nba_player_stats.csv')
-
+        
         logging.info(f"Games data shape: {games_data.shape}")
         logging.info(f"Player stats shape: {player_stats.shape}")
 
-        # Required columns
+        st.write("### Games Data Columns:")
+        st.write(games_data.columns)
+        st.write("### Player Stats Columns:")
+        st.write(player_stats.columns)
+
         required_game_columns = ['GAME_DATE', 'MATCHUP', 'WL', 'PTS', 'AST', 'REB']
         missing_columns = [col for col in required_game_columns if col not in games_data.columns]
 
@@ -76,11 +82,9 @@ def preprocess_data():
             st.error(f"Missing columns in game data: {missing_columns}")
             return None, None
 
-        # Convert 'GAME_DATE' and 'WL'
         games_data['GAME_DATE'] = pd.to_datetime(games_data['GAME_DATE'])
         games_data['WL'] = games_data['WL'].map({'W': 1, 'L': 0})
 
-        # Fill missing values
         games_data.fillna(0, inplace=True)
         player_stats.fillna(player_stats.mean(numeric_only=True), inplace=True)
 
@@ -97,10 +101,11 @@ def train_models():
     games_data, player_stats = preprocess_data()
     if games_data is None or player_stats is None:
         st.error("Preprocessing failed. Training aborted.")
-        logging.error("Preprocessing failed.")
+        logging.error("Preprocessing failed. Training aborted.")
         return
 
     logging.info("Starting model training...")
+    logging.info(f"Training data shapes — Games: {games_data.shape}, Players: {player_stats.shape}")
 
     try:
         # Spread model (Win prediction)
@@ -128,9 +133,9 @@ def train_models():
         # Save models
         joblib.dump(spread_model, 'spread_model.pkl')
         joblib.dump(player_model, 'player_model.pkl')
-
+        
         st.success("Models trained and saved successfully.")
-        logging.info("Models saved.")
+        logging.info("Models saved successfully.")
 
     except Exception as e:
         logging.error(f"Training failed: {e}")
@@ -157,7 +162,7 @@ def predict_outcomes():
             for _, player in player_stats.iterrows():
                 player_features = [[player['PTS'], player['AST'], player['REB']]]
                 pred_pts = player_model.predict(player_features)[0]
-
+                
                 player_predictions.append({
                     'Player': player['PLAYER_NAME'],
                     'Pred Points': round(pred_pts, 1),
