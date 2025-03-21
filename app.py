@@ -63,14 +63,9 @@ def preprocess_data():
     try:
         games_data = pd.read_csv('nba_games.csv')
         player_stats = pd.read_csv('nba_player_stats.csv')
-        
+
         logging.info(f"Games data shape: {games_data.shape}")
         logging.info(f"Player stats shape: {player_stats.shape}")
-
-        st.write("### Games Data Columns:")
-        st.write(games_data.columns)
-        st.write("### Player Stats Columns:")
-        st.write(player_stats.columns)
 
         # Required columns
         required_game_columns = ['GAME_DATE', 'MATCHUP', 'WL', 'PTS', 'AST', 'REB']
@@ -110,7 +105,7 @@ def train_models():
     try:
         # Spread model (Win prediction)
         X_games = games_data[['PTS', 'AST', 'REB']]
-        y_games = games_data['WL']  # Win = 1, Loss = 0
+        y_games = games_data['WL']
 
         X_train, X_test, y_train, y_test = train_test_split(X_games, y_games, test_size=0.2, random_state=42)
 
@@ -133,7 +128,7 @@ def train_models():
         # Save models
         joblib.dump(spread_model, 'spread_model.pkl')
         joblib.dump(player_model, 'player_model.pkl')
-        
+
         st.success("Models trained and saved successfully.")
         logging.info("Models saved.")
 
@@ -162,7 +157,7 @@ def predict_outcomes():
             for _, player in player_stats.iterrows():
                 player_features = [[player['PTS'], player['AST'], player['REB']]]
                 pred_pts = player_model.predict(player_features)[0]
-                
+
                 player_predictions.append({
                     'Player': player['PLAYER_NAME'],
                     'Pred Points': round(pred_pts, 1),
