@@ -1,5 +1,5 @@
 streamlit
-nba_api
-scikit-learn
 pandas
 joblib
+nba-api
+scikit-learn
